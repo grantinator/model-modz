@@ -1,11 +1,16 @@
 import ollama
 import requests
+import json
 
-def call_and_stream_results(query):
+'''
+To run first start ollama with `ollama serve` in a terminal window.
+'''
+
+def call_and_stream_results(query, context):
     r = requests.post('http://localhost:11434/api/generate',
         json={
             'model': 'llama3.2',
-            'prompt': prompt,
+            'prompt': query,
             'context': [],
         },
         stream=True)
@@ -18,16 +23,17 @@ def call_and_stream_results(query):
         full_response += response.get('response', '')
 
     print(full_response)
+    return full_response
 
 
 def main():
-    # context = [] # the context stores a conversation history, you can use this to make the model more context aware
+    context = [] # the context stores a conversation history, you can use this to make the model more context aware
     while True:
         user_input = input("Enter a prompt: ")
         if not user_input:
             exit()
         print()
-        call_and_stream_results(user_input)
+        context = call_and_stream_results(user_input, context)
         print()
 
 if __name__ == "__main__":
