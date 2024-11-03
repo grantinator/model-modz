@@ -27,7 +27,8 @@ def call_and_stream_results(query, context):
 
 
 def main():
-    context = [] # the context stores a conversation history, you can use this to make the model more context aware
+    ## This array stores every message returned by the model in full.
+    context = []
     while True:
         user_input = input("Enter a prompt: ")
         if not user_input:
