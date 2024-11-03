@@ -11,19 +11,21 @@ def call_and_stream_results(query, context):
         json={
             'model': 'llama3.2',
             'prompt': query,
-            'context': [],
+            'context': context,
         },
         stream=True)
     r.raise_for_status()
     
+    full_context = []
     full_response = ""
     for l in r.iter_lines():
         response = json.loads(l)
 
         full_response += response.get('response', '')
+        full_context.extend(response.get('context', ''))
 
-    print(full_response)
-    return full_response
+    print("Response:\n\t" + full_response)
+    return full_context
 
 
 def main():
@@ -33,9 +35,10 @@ def main():
         user_input = input("Enter a prompt: ")
         if not user_input:
             exit()
-        print()
+        print("\n")
+        print(context)
         context = call_and_stream_results(user_input, context)
-        print()
+        print("\n")
 
 if __name__ == "__main__":
     main()
