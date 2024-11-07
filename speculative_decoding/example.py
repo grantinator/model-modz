@@ -10,8 +10,10 @@ todo:
 """
 
 import os
+
 from huggingface_hub import login
 from llama_cpp import Llama, llama_get_logits, llama_n_vocab, llama_token_data
+import numpy as np
 
 
 HF_TOKEN = os.environ.get("HF_TOKEN")
@@ -27,38 +29,50 @@ def generate_with_speculator(
     max_tokens: int = 32,
 ) -> str:
     """Generates text using a speculator and target model."""
-    predicted_tokens = []
-    context = prompt
-    while len(predicted_tokens) < max_tokens:
+    tokens = target_model.tokenizer().tokenize(prompt.encode())
+    num_input_tokens = len(tokens)
+    while len(tokens) < num_input_tokens + max_tokens:
         # Speculate the next k tokens.
-        speculated_output = speculator_model(
-            context, max_tokens=k, logprobs=True, echo=True
-        )
-        speculated_text = speculated_output["choices"][0]["text"]
-        speculated_logprobs = speculated_output["choices"][0]["logprobs"]
+        # temp=0 to use greedy (i.e. deterministic) sampling
+        sample = speculator_model.generate(tokens=tokens, temp=0.0)
+        draft_tokens = []
+        for _ in range(k):
+            draft_tokens.append(next(sample))
 
-        # Okay it turns out we need logits for all tokens in vocab, not just token with max logit (i.e. the one that was generated).
-        # So this line isn't useful but keeping here for reference.
-        speculated_last_k_logprobs = speculated_logprobs["token_logprobs"][
-            len(speculated_logprobs["tokens"]) - k :
+        draft_token_logits = speculator_model.scores[
+            len(tokens) - 1 : len(tokens) + k - 1, :
         ]
-
-        # Extract logits for all tokens. We have to use the low-level ctypes API :(.
-        logits = llama_get_logits(speculator_model.ctx)
-        n_vocab = llama_n_vocab(speculator_model.model)
-
-        # (num tokens in context, n_vocab)
-        arr = (llama_token_data * n_vocab)(
-            *[
-                llama_token_data(token_id, logits[token_id], 0.0)
-                for token_id in range(n_vocab)
-            ]
+        assert np.all(
+            np.equal(np.argmax(draft_token_logits, axis=1), np.array(draft_tokens))
         )
 
-        # Score the next k tokens with the big model.
-        output = target_model(
-            context + speculated_text, max_tokens=1, logprobs=True, echo=True
-        )
+        # Score the k draft tokens with the big model.
+        all_accepted = True
+        target_model.eval(tokens + draft_tokens)
+
+        # Note: We include the score for the next token, too.
+        scored_token_logits = target_model.scores[len(tokens) - 1 : len(tokens) + k, :]
+        for i in range(k):
+            # Index of draft token
+            j = draft_tokens[i]
+
+            if np.random.random() < min(
+                1, scored_token_logits[i][j] / draft_token_logits[i][j]
+            ):
+                # Accept token if target model probability is ~higher~ than draft model probability.
+                tokens.append(j)
+            else:
+                # todo: in the paper, they are sampling based on both target and draft distributions not this...idk why
+                tokens.append(np.argmax(scored_token_logits[i]))
+                all_accepted = False
+                break
+
+        if all_accepted:
+            # sample again from target model to take advantage of the fact
+            # that we already produced logits for the next (n + k)th token
+            tokens.append(np.argmax(scored_token_logits[-1]))
+
+    return tokens
 
 
 if __name__ == "__main__":
@@ -78,11 +92,12 @@ if __name__ == "__main__":
         logits_all=True,
     )
 
-    generate_with_speculator(
+    tokens = generate_with_speculator(
         prompt="Q: Name the planets in the solar system? A: ",
         speculator_model=speculator_llm,
         target_model=target_llm,
     )
+    print(target_llm.tokenizer().decode(tokens))
 
     # output = llm(
     #     "Q: Name the planets in the solar system? A: ",
