@@ -92,17 +92,35 @@ if __name__ == "__main__":
         logits_all=True,
     )
 
+    # Approach 1: Speculative decoding (gibberish! there must be a bug)
     tokens = generate_with_speculator(
         prompt="Q: Name the planets in the solar system? A: ",
         speculator_model=speculator_llm,
         target_model=target_llm,
     )
-    print(target_llm.tokenizer().decode(tokens))
+    output_1 = target_llm.tokenizer().decode(tokens)
 
-    # output = llm(
-    #     "Q: Name the planets in the solar system? A: ",
-    #     max_tokens=32,
-    #     stop=["Q:", "\n"], # stop generating just before the model would generate a new question
-    #     echo=True, # echo the prompt back in the output
-    #     logprobs=True, # return logits for all tokens in the prompt + output
-    # )
+    # Approach 2: Using target model + greedy sampling.
+    tokens = target_llm.tokenizer().encode(
+        "Q: Name the planets in the solar system? A: "
+    )
+    sample = target_llm.generate(tokens=tokens, temp=0.0)
+    for _ in range(32):
+        tokens.append(next(sample))
+    output_2 = target_llm.tokenizer().decode(tokens)
+
+    # Approach 3: Using higher-level API.
+    output_3 = target_llm(
+        "Q: Name the planets in the solar system? A: ",
+        max_tokens=32,
+        stop=[
+            "Q:",
+            "\n",
+        ],  # stop generating just before the model would generate a new question
+        echo=True,  # echo the prompt back in the output
+        logprobs=True,  # return logits for all tokens in the prompt + output
+        temperature=0.0,
+    )
+    print(output_1)
+    print(output_2)
+    print(output_3["choices"][0]["text"])
